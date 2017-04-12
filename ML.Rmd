@@ -1,0 +1,88 @@
+---
+title: 'Practical Machine Learning: Coursera'
+author: "Reid Shaw"
+date: "4/11/2017"
+output: html_document
+---
+## Project Overview:
+
+### What to Submit:
+The goal of your project is to predict the manner in which the participants did the exercise. This is the "classe" variable in the training set. You may use any of the other variables for the prediction. You should create a report describing how you built your model, how you used cross validation, what is the the expected out of sample error, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+
+### Load in the required files and packages, and set pseudo-random seed for splitting data:
+```{r}
+setwd("/Users/reidshaw/Documents/machine_learning_project")
+train <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!", ""))
+test <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!", ""))
+library(caret); library(randomForest); library(rpart); library(rpart.plot); library(rattle); library(knitr)
+set.seed(4321)
+```
+
+
+### Cleaning the data:
+Here, I retained the variables that are not near-zero variance predictors. This will discard any variables that have "few unique values relative to the number of samples and the ratio of the frequency of the most common value to the frequency of the second most common value is large."
+```{r}
+myDataNZV <- nearZeroVar(train, saveMetrics = TRUE)
+myNZV <- names(train) %in% rownames(myDataNZV[myDataNZV$nzv == "FALSE",])
+train <- train[myNZV]; test <- test[myNZV]
+```
+
+I first removed the first column of the test and train dataset. Then, I partitioned the training dataset into a sub_train and sub_test that I will later use for training and testing my different models.
+```{r}
+train <- train[,-1]; test <- test[,-1]
+inTrain <- createDataPartition(y = train$classe, p = 0.6, list = FALSE)
+sub_train <- train[inTrain,]; sub_test <- train[-inTrain,]
+```
+
+
+I then chose to remove any variables that have over 50% missing values. I did this because I thought that missing values could bias the downstream algorithms.
+```{r}
+na_count <-sapply(train, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+na_count$prop <- na_count$na_count / nrow(train)
+na_count$cnames <- rownames(na_count)
+
+sub_train <- sub_train[, colnames(sub_train) %in% na_count$cnames[na_count$prop < 0.5]]
+sub_test <- sub_test[,colnames(sub_test) %in% na_count$cnames[na_count$prop < 0.5]]
+test <- test[,colnames(test) %in% na_count$cnames[na_count$prop < 0.5]]
+```
+
+
+The class variables of thes testing dataset must be the same as the training set in order to predict the 'classe' variable.
+```{r}
+common <- intersect(names(test), names(sub_train)) 
+for (p in common) { 
+     if (class(sub_train[[p]]) == "factor") { 
+          levels(test[[p]]) <- levels(sub_train[[p]]) 
+     } 
+}
+```
+
+
+### Model Prediction:
+
+In the subsequent code, I fit two different models. This is used as my cross validation. One being a decision tree and the other being a random forest. These two model types are used because they are ideal for factor predictors, such as the one we are using for this project ('classe'). Regardless, the out of sample error will likely be greater than either model because we are likely overfitting the data we are using in the test set.
+```{r}
+### Decision Tree ML
+modFit1 <- rpart(classe ~ ., data=sub_train, method="class")
+fancyRpartPlot(modFit1)
+
+### Predict with the decision tree model
+prediction1 <- predict(modFit1, sub_test, type = "class")
+confusionMatrix(prediction1, sub_test$classe)
+
+### Random Forest ML
+modFit2 <- randomForest(classe ~. , data=sub_train)
+
+### Predict with the random forest model
+prediction2 <- predict(modFit2, sub_test, type = "class")
+confusionMatrix(prediction2, sub_test$classe)
+```
+
+
+The accuracy demonstrated by the random forest model is far superior to that of the decision tree. Therefore, I will apply the random forest model to the test dataset to make my predictions.
+```{r}
+prediction_test <- predict(modFit2, test, type = "class")
+prediction_test
+```
